@@ -212,19 +212,20 @@ func searchUser(l *ldap.Conn, cfg map[string]interface{}, username string) bool 
 
 		for _, entry := range result.Entries {
 
-			slog.Debug("lastLogon", "Value", entry.GetAttributeValue("lastlogon"))
-			lastLogon, err := FileTimeToGoTime(entry.GetAttributeValue("lastlogon"))
+			slog.Debug("lastLogon", "value", entry.GetAttributeValue("lastLogon"), "values", entry.GetAttributeValues("lastLogon"))
+			slog.Debug("lastLogonLowercase", "value", entry.GetAttributeValue("lastlogon"), "values", entry.GetAttributeValues("lastlogon"))
+			lastLogon, err := FileTimeToGoTime(entry.GetAttributeValue("lastLogon"))
 			if err != nil {
 				slog.Error("Cannot convert FileTime for lastLogon attribute", "error", err)
 			}
 
-			slog.Debug("lastLogonTimestamp", "Value", entry.GetAttributeValue("lastlogontimestamp"))
+			slog.Debug("lastLogonTimestamp", "value", entry.GetAttributeValue("lastlogontimestamp"))
 			lastLogonTS, err := FileTimeToGoTime(entry.GetAttributeValue("lastlogontimestamp"))
 			if err != nil {
 				slog.Error("Cannot convert FileTime for lastLogonTimestamp attribute", "error", err)
 			}
 
-			slog.Debug("accountExpires", "Value", entry.GetAttributeValue("accountexpires"))
+			slog.Debug("accountExpires", "value", entry.GetAttributeValue("accountexpires"))
 			accountExpires, err := FileTimeToGoTime(entry.GetAttributeValue("accountexpires"))
 			if err != nil {
 				slog.Error("Cannot convert FileTime for accountExpires attribute", "error", err)
