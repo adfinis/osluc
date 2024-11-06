@@ -6,7 +6,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/caarlos0/env"
 	"github.com/go-ldap/ldap/v3"
@@ -84,6 +86,7 @@ func main() {
 
 	// Do the check and delete
 	for _, user := range users.Items {
+		// only if there is one identity
 		if len(user.Identities) == 1 {
 			for _, id := range user.Identities {
 				if strings.HasPrefix(id, cfg.IdentityPrefix) {
@@ -98,15 +101,16 @@ func main() {
 								slog.Error("Unable to delete identity", "error", err_id)
 							} else {
 								slog.Info("Successfully deleted identity", "name", id)
+								// delete User
+								slog.Debug("Deleting user", "name", user.Name)
+								err_user := cl.Users().Delete(context.TODO(), user.Name, metav1.DeleteOptions{})
+								if err_user != nil {
+									slog.Error("Unable to delete user", "error", err_user)
+								} else {
+									slog.Info("Successfully deleted user", "name", user.Name)
+								}
 							}
-							// delete User
-							slog.Debug("Deleting user", "name", user.Name)
-							err_user := cl.Users().Delete(context.TODO(), user.Name, metav1.DeleteOptions{})
-							if err_user != nil {
-								slog.Error("Unable to delete user", "error", err_user)
-							} else {
-								slog.Info("Successfully deleted user", "name", user.Name)
-							}
+
 						}
 					}
 				} else {
@@ -188,7 +192,7 @@ func searchUser(l *ldap.Conn, cfg map[string]interface{}, username string) bool 
 		0,            // Time limit, 0 for no limit
 		false,        // TypesOnly - don't return attribute values, only attribute types
 		searchFilter, // Search filter
-		[]string{},   // Attributes to retrieve //"dn", "cn", "mail", "samaccountname"
+		[]string{"dn", "cn", "lastLogon", "accountExpires", "sAMAccountName", "lastLogonTimestamp"}, // Attributes to retrieve //
 		nil,
 	)
 
@@ -204,20 +208,38 @@ func searchUser(l *ldap.Conn, cfg map[string]interface{}, username string) bool 
 		return true
 	} else {
 		slog.Debug("User found in LDAP, checking user attributes", "filter", searchFilter)
-		// TODO check user attributes
-		// return true
+		for _, entry := range result.Entries {
+
+			lastLogon, err := FileTimeToGoTime(entry.GetAttributeValue("lastlogon"))
+			if err != nil {
+				slog.Error("Cannot convert FileTime for lastLogon attribute", "error", err)
+			}
+
+			lastLogonTS, err := FileTimeToGoTime(entry.GetAttributeValue("lastlogontimestamp"))
+			if err != nil {
+				slog.Error("Cannot convert FileTime for lastLogonTimestamp attribute", "error", err)
+			}
+
+			accountExpires, err := FileTimeToGoTime(entry.GetAttributeValue("accountexpires"))
+			if err != nil {
+				slog.Error("Cannot convert FileTime for accountExpires attribute", "error", err)
+			}
+
+			now := time.Now()
+			slog.Debug("Attributes",
+				"DN", entry.DN,
+				"CN", entry.GetAttributeValue("cn"),
+				"sAMAccountName", entry.GetAttributeValue("samaccountname"),
+				"lastLogon", lastLogon,
+				"lastLogonAgo", fmt.Sprintf("%v days", int(now.Sub(lastLogon).Hours()/24)),
+				"lastLogonTimestamp", lastLogonTS,
+				"lastLogonTimestampAgo", fmt.Sprintf("%v days", int(now.Sub(lastLogonTS).Hours()/24)),
+				"accountExpires", accountExpires,
+				"accountExpiresAgo", fmt.Sprintf("%v days", int(now.Sub(lastLogonTS).Hours()/24)),
+			)
+		}
 	}
 
-	result.PrettyPrint(2)
-	// Display the results
-	// for _, entry := range result.Entries {
-	// 	fmt.Printf("---------\n%v\n", len(entry.Attributes))
-
-	// 	fmt.Printf("DN: %s\n", entry.DN)
-	// 	fmt.Printf("CN: %s\n", entry.GetAttributeValue("cn"))
-	// 	fmt.Printf("Email: %s\n", entry.GetAttributeValue("mail"))
-	// 	fmt.Printf("sAMAccountName: %s\n", entry.GetAttributeValue("samaccountname"))
-	// }
 	return false
 }
 
@@ -244,4 +266,24 @@ func createClient(kubeconfigPath string) (userv1.UserV1Interface, error) {
 	}
 
 	return userV1Client, nil
+}
+
+func FileTimeToGoTime(fileTimeStr string) (time.Time, error) {
+	// Convert the file time string to an integer
+	fileTimeInt, err := strconv.ParseInt(fileTimeStr, 10, 64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid fileTime: %v", err)
+	}
+
+	// Constants
+	const windowsEpochOffset = 11644473600 // Difference in seconds between 1601-01-01 and 1970-01-01
+	const hundredNanosecondsPerSecond = 10000000
+
+	// Convert Windows FileTime to UNIX timestamp
+	unixTimestamp := (fileTimeInt / hundredNanosecondsPerSecond) - windowsEpochOffset
+
+	// Convert UNIX timestamp to Go time.Time in UTC
+	goTime := time.Unix(unixTimestamp, 0).UTC()
+
+	return goTime, nil
 }
