@@ -192,7 +192,7 @@ func searchUser(l *ldap.Conn, cfg map[string]interface{}, username string) bool 
 		0,            // Time limit, 0 for no limit
 		false,        // TypesOnly - don't return attribute values, only attribute types
 		searchFilter, // Search filter
-		[]string{"dn", "cn", "lastLogon", "accountexpires", "samaccountname", "lastlogontimestamp"}, // Attributes to retrieve //
+		[]string{"dn", "cn", "samaccountname", "lastlogontimestamp"}, // Attributes to retrieve
 		nil,
 	)
 
@@ -211,19 +211,9 @@ func searchUser(l *ldap.Conn, cfg map[string]interface{}, username string) bool 
 
 		for _, entry := range result.Entries {
 
-			lastLogon, err := FileTimeToGoTime(entry.GetAttributeValue("lastLogon"))
-			if err != nil {
-				slog.Error("Cannot convert FileTime for lastLogon attribute", "error", err)
-			}
-
 			lastLogonTS, err := FileTimeToGoTime(entry.GetAttributeValue("lastLogonTimestamp"))
 			if err != nil {
 				slog.Error("Cannot convert FileTime for lastLogonTimestamp attribute", "error", err)
-			}
-
-			accountExpires, err := FileTimeToGoTime(entry.GetAttributeValue("accountExpires"))
-			if err != nil {
-				slog.Error("Cannot convert FileTime for accountExpires attribute", "error", err)
 			}
 
 			now := time.Now()
@@ -231,12 +221,8 @@ func searchUser(l *ldap.Conn, cfg map[string]interface{}, username string) bool 
 				"DN", entry.DN,
 				"CN", entry.GetAttributeValue("cn"),
 				"sAMAccountName", entry.GetAttributeValue("sAMAccountName"),
-				"lastLogon", lastLogon,
-				"lastLogonAgo", fmt.Sprintf("%v days", int(now.Sub(lastLogon).Hours()/24)),
 				"lastLogonTimestamp", lastLogonTS,
 				"lastLogonTimestampAgo", fmt.Sprintf("%v days", int(now.Sub(lastLogonTS).Hours()/24)),
-				"accountExpires", accountExpires,
-				"accountExpiresAgo", fmt.Sprintf("%v days", int(now.Sub(lastLogonTS).Hours()/24)),
 			)
 		}
 	}
