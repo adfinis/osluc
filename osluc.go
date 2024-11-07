@@ -29,6 +29,8 @@ type Config struct {
 	Kubeconfig string `env:"KUBECONFIG" envDefault:""`
 	// Path to LDAPSyncConfig file
 	LDAPSyncConfigPath string `env:"OSLUC_LDAP_SYNC_CONFIG_PATH" envDefault:"sync.yaml"`
+	// Delete user also if it hasn't logged in the last n days. n must be more than 14 days, disabled by default
+	LastLogonDaysAgo string `env:"OSLUC_LAST_LOGON_DAYS_AGO" envDefault:"0"`
 	// Confirm removal of inactive or not found users, default false
 	Confirm bool `env:"OSLUC_CONFIRM" envDefault:"FALSE"`
 }
@@ -50,7 +52,23 @@ func main() {
 
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})))
 
-	slog.Info("OSLUC confirm flag", "confirm", cfg.Confirm)
+	slog.Info("Confirm delete flag", "confirm", cfg.Confirm)
+
+	// handle last logon value
+	lastLogonDaysAgo, err := strconv.Atoi(cfg.LastLogonDaysAgo)
+	if err != nil {
+		slog.Warn("Unable to convert OSLUC_LAST_LOGON_DAYS_AGO, setting to 0 (disable)", "error", err)
+		lastLogonDaysAgo = 0
+	}
+	if lastLogonDaysAgo != 0 && lastLogonDaysAgo < 14 {
+		slog.Warn("OSLUC_LAST_LOGON_DAYS_AGO not 0 or >= 14, setting to 0 (disable)")
+		lastLogonDaysAgo = 0
+	}
+	if lastLogonDaysAgo != 0 {
+		slog.Info("Will delete users that did not log in to LDAP for at least", "days", lastLogonDaysAgo)
+	} else {
+		slog.Info("User deletion based on activity disabled")
+	}
 
 	// create kubernetes client
 	cl, err := createClient(cfg.Kubeconfig)
@@ -85,13 +103,14 @@ func main() {
 	defer ldap.Close()
 
 	// Do the check and delete
+	deletedUsers := 0
 	for _, user := range users.Items {
 		// only if there is one identity
 		if len(user.Identities) == 1 {
 			for _, id := range user.Identities {
 				if strings.HasPrefix(id, cfg.IdentityPrefix) {
-					slog.Debug("Found User with correct prefix, searching in LDAP", "user", user.Name)
-					if searchUser(ldap, ldapSyncCfg, user.Name) {
+					slog.Debug("Found User with matching prefix, searching in LDAP", "user", user.Name)
+					if searchUser(ldap, ldapSyncCfg, user.Name, lastLogonDaysAgo) {
 						slog.Info("Remove User and identity", "name", user, "confirm", cfg.Confirm)
 						if cfg.Confirm {
 							// delete Identity
@@ -108,6 +127,7 @@ func main() {
 									slog.Error("Unable to delete user", "error", err_user)
 								} else {
 									slog.Info("Successfully deleted user", "name", user.Name)
+									deletedUsers++
 								}
 							}
 
@@ -124,6 +144,7 @@ func main() {
 			slog.Debug("Skipping user due to identity count mismatch", "user", user.Name, "expected", "1", "got", len(user.Identities))
 		}
 	}
+	slog.Info("Deleted users", "total", deletedUsers)
 }
 
 func bindLDAP(cfg map[string]interface{}) *ldap.Conn {
@@ -156,8 +177,8 @@ func bindLDAP(cfg map[string]interface{}) *ldap.Conn {
 	return l
 }
 
-// returns true if user not found or inactive
-func searchUser(l *ldap.Conn, cfg map[string]interface{}, username string) bool {
+// returns true if user not found
+func searchUser(l *ldap.Conn, cfg map[string]interface{}, username string, lastLogonCfg int) bool {
 	aad := cfg["augmentedActiveDirectory"].(map[string]interface{})
 	aadUq := aad["usersQuery"].(map[string]interface{})
 	baseDN := aadUq["baseDN"].(string)
@@ -217,13 +238,18 @@ func searchUser(l *ldap.Conn, cfg map[string]interface{}, username string) bool 
 			}
 
 			now := time.Now()
+			lastLogonDaysAgo := int(now.Sub(lastLogonTS).Hours() / 24)
+
 			slog.Debug("Attributes",
 				"DN", entry.DN,
 				"CN", entry.GetAttributeValue("cn"),
 				"sAMAccountName", entry.GetAttributeValue("sAMAccountName"),
 				"lastLogonTimestamp", lastLogonTS,
-				"lastLogonTimestampAgo", fmt.Sprintf("%v days", int(now.Sub(lastLogonTS).Hours()/24)),
+				"lastLogonTimestampAgo", fmt.Sprintf("%v days", lastLogonDaysAgo),
 			)
+			if lastLogonDaysAgo > lastLogonCfg {
+				return true
+			}
 		}
 	}
 

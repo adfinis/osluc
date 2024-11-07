@@ -23,9 +23,9 @@ OSLUC does following:
   * mount Secret containing LDAP bind credentials
   * use separate service account
   * give service account permissions to use verbs `delete,get,list` on `User.user.openshift.io/v1` and `Identity.user.openshift.io/v1`
-* Set environmental variables
+* Set environmental variables as per description in `environment.md` file
 
 ## TODO
 
 * better way to read LDAPSyncConfig
-* tests
+* more tests
