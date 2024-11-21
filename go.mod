@@ -7,7 +7,7 @@ require (
 	github.com/go-ldap/ldap/v3 v3.4.8
 	github.com/openshift/client-go v0.0.0-20241001162912-da6d55e4611f
 	gopkg.in/yaml.v3 v3.0.1
-	k8s.io/apimachinery v0.31.2
+	k8s.io/apimachinery v0.31.3
 	k8s.io/client-go v0.31.2
 )
 
