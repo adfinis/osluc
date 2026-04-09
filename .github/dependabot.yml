@@ -6,14 +6,23 @@ updates:
       interval: "daily"
     commit-message:
       prefix: "feat: "
+    cooldown:
+      default-days: 7
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "daily"
     commit-message:
       prefix: "chore(ci): "
-    open-pull-requests-limit: 10
+    groups:
+      actions:
+        patterns:
+          - "*"
+    cooldown:
+      default-days: 7
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
       interval: "daily"
+    cooldown:
+      default-days: 7
